@@ -39,29 +39,32 @@ def get_ip_info(ip_address):
         print(f"IP 정보 조회 중 오류 발생: {e}")
         return None
 
-# 명령어 기록 가져오기
+# 특정 세션에서 실행된 명령어 기록 가져오기
 def get_command_history():
-    try:
-        with open(os.path.expanduser('~/.bash_history'), 'r') as file:
-            commands = file.readlines()
-        return commands[-10:]  # 최근 10개의 명령어를 가져옴
-    except FileNotFoundError:
-        print(".bash_history 파일을 찾을 수 없습니다.")
+    histfile = os.getenv('HISTFILE')  # 세션별로 기록된 히스토리 파일 경로
+    if histfile and os.path.exists(histfile):
+        try:
+            with open(histfile, 'r') as file:
+                commands = file.readlines()  # 모든 명령어 가져오기
+            return commands
+        except Exception as e:
+            print(f"명령어 기록을 가져오는 중 오류 발생: {e}")
+            return []
+    else:
+        print("HISTFILE을 찾을 수 없습니다.")
         return []
 
 # 웹훅 알림 보내기
-def send_webhook_notification(username, ip_info, commands=None):
+def send_webhook_notification(username, ip_info=None, commands=None):
     webhook_url = get_webhook_url()
     if not webhook_url:
         return
-    
-    login_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     
     # 로그아웃 시 명령어 전달
     if commands:
         data = {
             "username": username,
-            "logout_time": login_time,
+            "logout_time": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
             "commands": commands
         }
     # 로그인 시 IP 정보 전달
@@ -71,7 +74,7 @@ def send_webhook_notification(username, ip_info, commands=None):
             "ip_address": ip_info.get('ip_address', '알 수 없음'),
             "국가": ip_info.get('country', '알 수 없음'),
             "VPN 여부": ip_info.get('is_vpn', '알 수 없음'),
-            "login_time": login_time
+            "login_time": datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         }
     
     headers = {'Content-Type': 'application/json; charset=utf-8'}
@@ -102,12 +105,14 @@ def monitor_ssh_logins():
                 if ip_info:
                     send_webhook_notification(username, ip_info)
 
-# 사용자가 로그아웃할 때 명령어 기록 전송
+# 로그아웃 시 실행
 def on_logout():
     username = os.getlogin()
     commands = get_command_history()
-    send_webhook_notification(username, None, commands=commands)
+    send_webhook_notification(username, commands=commands)
 
 if __name__ == "__main__":
-    # SSH 로그인 모니터링
-    monitor_ssh_logins()
+    if 'logout' in os.getenv('SSH_ACTION', ''):
+        on_logout()
+    else:
+        monitor_ssh_logins()
